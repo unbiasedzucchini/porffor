@@ -27,27 +27,74 @@ function formatTime(ms) {
   return ms.toFixed(0) + ' ms';
 }
 
+// Count AST nodes
+function countNodes(obj) {
+  if (!obj || typeof obj !== 'object') return 0;
+  let n = 0;
+  if (obj.type) n = 1; // it's an AST node
+  for (const k of Object.keys(obj)) {
+    if (Array.isArray(obj[k])) for (const v of obj[k]) n += countNodes(v);
+    else if (typeof obj[k] === 'object' && obj[k] !== null) n += countNodes(obj[k]);
+  }
+  return n;
+}
+
+// Count scopes (_variables maps) added by semantic analysis
+function countScopes(obj) {
+  if (!obj || typeof obj !== 'object') return { scopes: 0, vars: 0 };
+  let scopes = 0, vars = 0;
+  if (obj._variables) {
+    scopes++;
+    vars += Object.keys(obj._variables).length;
+  }
+  for (const k of Object.keys(obj)) {
+    if (k === '_variables') continue;
+    if (Array.isArray(obj[k])) {
+      for (const v of obj[k]) {
+        const c = countScopes(v);
+        scopes += c.scopes; vars += c.vars;
+      }
+    } else if (typeof obj[k] === 'object' && obj[k] !== null) {
+      const c = countScopes(obj[k]);
+      scopes += c.scopes; vars += c.vars;
+    }
+  }
+  return { scopes, vars };
+}
+
 // Measure the "size" of a stage output for comparison
 function stageSize(key, stage) {
   if (!stage) return 0;
-  if (key === 'tokens') return stage.data.length; // token count
-  if (key === 'parse' || key === 'semantic') return JSON.stringify(stage.data).length; // JSON bytes
-  if (key === 'codegen' || key === 'opt') {
-    // total wasm instruction count across all funcs
-    let count = 0;
-    if (stage.data?.funcs) {
-      for (const f of stage.data.funcs) count += (f.wasm?.length || 0);
-    }
-    return count;
+  if (key === 'tokens') return stage.data.length;
+  if (key === 'parse') return countNodes(stage.data);
+  if (key === 'semantic') {
+    const c = countScopes(stage.data);
+    return c.vars; // primary metric: variables resolved
   }
+  if (key === 'codegen') return stage.opsTotal || 0;
+  if (key === 'opt') return stage.opsTotal || 0;
   if (key === 'assemble') return stage.data?.byteLength || stage.size || 0;
   return 0;
 }
 
-function sizeLabel(key, size) {
+function sizeLabel(key, size, stage) {
   if (key === 'tokens') return size + ' tokens';
-  if (key === 'parse' || key === 'semantic') return formatBytes(size);
-  if (key === 'codegen' || key === 'opt') return size + ' ops';
+  if (key === 'parse') return size + ' nodes';
+  if (key === 'semantic') {
+    const c = countScopes(stage.data);
+    return `${c.scopes} scopes, ${c.vars} vars`;
+  }
+  if (key === 'codegen') {
+    const pct = stage.opsTotal > 0 ? Math.round((stage.userOps / stage.opsTotal) * 100) : 0;
+    return `${size} ops (${pct}% yours)`;
+  }
+  if (key === 'opt') {
+    if (stage.opsDelta && stage.opsDelta !== 0) {
+      const sign = stage.opsDelta < 0 ? '' : '+';
+      return `${size} ops (${sign}${stage.opsDelta})`;
+    }
+    return size + ' ops';
+  }
   if (key === 'assemble') return formatBytes(size);
   return String(size);
 }
@@ -64,9 +111,9 @@ const STAGE_LABELS = {
 const STAGE_DESC = {
   tokens:   'Lexical tokens',
   parse:    'Abstract syntax tree',
-  semantic: 'Scope & variable analysis',
+  semantic: 'Scopes and bindings',
   codegen:  'Wasm instructions',
-  opt:      'Optimized Wasm',
+  opt:      'Peephole rewrites',
   assemble: 'Binary .wasm',
 };
 
@@ -109,7 +156,7 @@ function renderPipeline(result) {
     html += `  </div>`;
     html += `  <div class="stage-bar-wrap">`;
     html += `    <div class="stage-bar"><div class="stage-bar-fill" style="width:${pct}%"></div></div>`;
-    html += `    <div class="stage-size">${stage ? sizeLabel(key, size) : '—'}</div>`;
+    html += `    <div class="stage-size">${stage ? sizeLabel(key, size, stage) : '—'}</div>`;
     html += `  </div>`;
     html += `</div>`;
   }

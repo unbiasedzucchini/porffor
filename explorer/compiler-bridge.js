@@ -124,10 +124,30 @@ export function compileAll(source) {
     globalThis.valtypeBinary = Valtype.f64;
     globalThis.pageSize = PageSize / 4;
     const ir = codegen(freshAst);
+    const codegenTime = performance.now() - t2;
+
+    // Snapshot pre-opt instruction counts per function (opt mutates in-place)
+    const preOptOps = {};
+    let preOptTotal = 0;
+    let userOps = 0;
+    let runtimeOps = 0;
+    for (const f of ir.funcs) {
+      const len = f.wasm?.length || 0;
+      preOptOps[f.name] = len;
+      preOptTotal += len;
+      if (f.internal) runtimeOps += len;
+      else userOps += len;
+    }
+
     result.stages.codegen = {
       name: 'Wasm IR',
       data: ir,
-      time: performance.now() - t2
+      time: codegenTime,
+      opsTotal: preOptTotal,
+      userOps,
+      runtimeOps,
+      userFuncs: ir.funcs.filter(f => !f.internal).length,
+      runtimeFuncs: ir.funcs.filter(f => f.internal).length,
     };
 
     // Build disassembly for each function (pre-opt)
@@ -147,10 +167,18 @@ export function compileAll(source) {
     // Stage 4: Optimization
     const t3 = performance.now();
     opt(ir.funcs, ir.globals, ir.pages, ir.tags, ir.exceptions);
+    const optTime = performance.now() - t3;
+
+    // Count post-opt instructions
+    let postOptTotal = 0;
+    for (const f of ir.funcs) postOptTotal += (f.wasm?.length || 0);
+
     result.stages.opt = {
       name: 'Optimized Wasm IR',
       data: ir,
-      time: performance.now() - t3
+      time: optTime,
+      opsTotal: postOptTotal,
+      opsDelta: postOptTotal - preOptTotal,
     };
 
     // Build disassembly for each function (post-opt)
