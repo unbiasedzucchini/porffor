@@ -1,18 +1,18 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
-  --bg: #1a1a2e;
-  --bg-panel: #16213e;
-  --bg-header: #0f3460;
-  --bg-tab: #1a1a3e;
-  --bg-tab-active: #0f3460;
-  --text: #e0e0e0;
-  --text-dim: #8888aa;
-  --accent: #e94560;
-  --accent2: #00d2ff;
-  --border: #2a2a4a;
-  --success: #00e676;
-  --error: #ff5252;
+  --bg: #f5f3ef;
+  --bg-panel: #eae7e1;
+  --bg-header: #ddd8cf;
+  --bg-tab: #ece9e3;
+  --bg-tab-active: #f5f3ef;
+  --text: #3a3530;
+  --text-dim: #908578;
+  --accent: #c06050;
+  --accent2: #4a8a7a;
+  --border: #d5cfc6;
+  --success: #5a9a6a;
+  --error: #c05050;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
 }
 
@@ -44,7 +44,7 @@ header {
 h1 {
   font-size: 18px;
   font-weight: 700;
-  color: #fff;
+  color: #3a3530;
 }
 
 .subtitle {
@@ -60,7 +60,7 @@ h1 {
 
 #compile-btn {
   background: var(--accent);
-  color: #fff;
+  color: #faf8f5;
   border: none;
   padding: 6px 18px;
   border-radius: 4px;
@@ -70,11 +70,11 @@ h1 {
   transition: background 0.15s;
 }
 
-#compile-btn:hover { background: #c73650; }
-#compile-btn:active { background: #a52940; }
+#compile-btn:hover { background: #a85040; }
+#compile-btn:active { background: #904030; }
 
 #compile-btn.compiling {
-  background: var(--text-dim);
+  background: #c0b8a8;
   pointer-events: none;
 }
 
@@ -115,9 +115,8 @@ main {
   z-index: 10;
 }
 
-.source-panel::after:hover,
-.source-panel:active::after {
-  background: var(--accent2);
+.source-panel:hover::after {
+  background: #b0a898;
 }
 
 .panel-header {
@@ -163,7 +162,7 @@ main {
   white-space: nowrap;
 }
 
-.tab:hover { color: var(--text); background: rgba(255,255,255,0.04); }
+.tab:hover { color: var(--text); background: rgba(0,0,0,0.04); }
 .tab.active {
   color: var(--accent2);
   border-bottom-color: var(--accent2);
@@ -212,7 +211,7 @@ main {
 }
 
 .panel-toolbar button {
-  background: var(--bg);
+  background: #fff;
   color: var(--text-dim);
   border: 1px solid var(--border);
   padding: 3px 10px;
@@ -243,27 +242,27 @@ main {
 }
 
 /* AST tree styling */
-.ast-key { color: #82aaff; }
-.ast-string { color: #c3e88d; }
-.ast-number { color: #f78c6c; }
-.ast-boolean { color: #c792ea; }
-.ast-null { color: #ff5370; }
-.ast-type { color: #ffcb6b; font-weight: 700; }
-.ast-bracket { color: #666; }
+.ast-key { color: #5a7aaa; }
+.ast-string { color: #6a8a50; }
+.ast-number { color: #b07040; }
+.ast-boolean { color: #8a60a0; }
+.ast-null { color: #c06060; }
+.ast-type { color: #a07020; font-weight: 700; }
+.ast-bracket { color: #a09888; }
 .ast-toggle {
   cursor: pointer;
   user-select: none;
-  color: #666;
+  color: #a09888;
 }
 .ast-toggle:hover { color: var(--accent2); }
-.ast-collapsed-hint { color: #555; font-style: italic; }
+.ast-collapsed-hint { color: #b0a898; font-style: italic; }
 
 /* Wasm disassembly */
-.wasm-opcode { color: #82aaff; }
-.wasm-comment { color: #546e7a; }
-.wasm-func-name { color: #ffcb6b; font-weight: 600; }
-.wasm-type { color: #c792ea; }
-.wasm-number { color: #f78c6c; }
+.wasm-opcode { color: #5a7aaa; }
+.wasm-comment { color: #a09888; }
+.wasm-func-name { color: #a07020; font-weight: 600; }
+.wasm-type { color: #8a60a0; }
+.wasm-number { color: #b07040; }
 
 /* Error / timing bars */
 .error-bar {
@@ -271,7 +270,7 @@ main {
   bottom: 0;
   left: 0;
   right: 0;
-  background: rgba(255, 82, 82, 0.95);
+  background: rgba(192, 80, 80, 0.95);
   color: #fff;
   padding: 8px 16px;
   font-family: var(--font-mono);
@@ -287,13 +286,14 @@ main {
   bottom: 0;
   left: 0;
   right: 0;
-  background: rgba(0, 50, 80, 0.95);
+  background: rgba(234, 231, 225, 0.97);
   color: var(--accent2);
   padding: 5px 16px;
   font-size: 12px;
   z-index: 99;
   display: flex;
   gap: 20px;
+  border-top: 1px solid var(--border);
 }
 
 .timing-bar .timing-item {
@@ -313,6 +313,7 @@ main {
   font-family: var(--font-mono);
   font-size: 13px;
   background: var(--bg);
+  color: var(--text);
 }
 
 .CodeMirror-gutters {
@@ -320,10 +321,31 @@ main {
   border-right: 1px solid var(--border);
 }
 
+.CodeMirror-linenumber { color: var(--text-dim); }
+.CodeMirror-cursor { border-left-color: var(--text); }
+.CodeMirror-selected { background: #c8daf0 !important; }
+.CodeMirror-focused .CodeMirror-selected { background: #c8daf0 !important; }
+.cm-s-default .cm-keyword { color: #8a60a0; }
+.cm-s-default .cm-atom { color: #b07040; }
+.cm-s-default .cm-number { color: #b07040; }
+.cm-s-default .cm-def { color: #5a7aaa; }
+.cm-s-default .cm-variable { color: #3a3530; }
+.cm-s-default .cm-variable-2 { color: #5a7aaa; }
+.cm-s-default .cm-type { color: #4a8a7a; }
+.cm-s-default .cm-comment { color: #a09888; }
+.cm-s-default .cm-string { color: #6a8a50; }
+.cm-s-default .cm-string-2 { color: #6a8a50; }
+.cm-s-default .cm-property { color: #c06050; }
+.cm-s-default .cm-operator { color: #3a3530; }
+.cm-s-default .cm-bracket { color: #908578; }
+.cm-s-default .cm-tag { color: #c06050; }
+.cm-s-default .cm-attribute { color: #5a7aaa; }
+.CodeMirror-matchingbracket { color: var(--accent2) !important; text-decoration: underline; }
+
 /* Hex dump */
-.hex-offset { color: #546e7a; }
-.hex-byte { color: #82aaff; }
-.hex-ascii { color: #c3e88d; }
+.hex-offset { color: #a09888; }
+.hex-byte { color: #5a7aaa; }
+.hex-ascii { color: #6a8a50; }
 .hex-header { color: var(--accent2); }
 
 /* Token display */
@@ -352,19 +374,19 @@ main {
   grid-template-columns: 100px 1fr 80px;
   gap: 12px;
   padding: 3px 12px;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(0,0,0,0.05);
   font-family: var(--font-mono);
   font-size: 12px;
 }
 
-.token-row:hover { background: rgba(255,255,255,0.03); }
+.token-row:hover { background: rgba(0,0,0,0.03); }
 .token-type { font-weight: 600; }
 .token-value { color: var(--text); }
 .token-pos { color: var(--text-dim); text-align: right; }
 
 .token-source {
   padding: 12px;
-  background: rgba(0,0,0,0.2);
+  background: rgba(255,255,255,0.5);
   border-radius: 4px;
   font-family: var(--font-mono);
   font-size: 13px;
@@ -379,14 +401,14 @@ main {
 }
 
 .token-source span:hover {
-  background: rgba(255,255,255,0.1);
+  background: rgba(0,0,0,0.07);
 }
 
 /* Scrollbar styling */
 .output::-webkit-scrollbar { width: 8px; height: 8px; }
 .output::-webkit-scrollbar-track { background: var(--bg); }
 .output::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-.output::-webkit-scrollbar-thumb:hover { background: #3a3a5a; }
+.output::-webkit-scrollbar-thumb:hover { background: #b0a898; }
 
 #wasm-size {
   color: var(--text-dim);

@@ -1,7 +1,7 @@
 // ── CodeMirror Editor Setup ──
 const editor = CodeMirror.fromTextArea(document.getElementById('source-editor'), {
   mode: 'javascript',
-  theme: 'monokai',
+
   lineNumbers: true,
   tabSize: 2,
   indentWithTabs: false,
@@ -125,14 +125,14 @@ function highlightDisasm(text) {
 // ── Token Renderer ──
 function renderTokens(tokens, source) {
   const colorMap = {
-    keyword: '#c792ea',
-    identifier: '#82aaff',
-    number: '#f78c6c',
-    string: '#c3e88d',
-    operator: '#89ddff',
-    punctuation: '#89ddff',
-    comment: '#546e7a',
-    unknown: '#ff5370',
+    keyword: '#8a60a0',
+    identifier: '#5a7aaa',
+    number: '#b07040',
+    string: '#6a8a50',
+    operator: '#3a3530',
+    punctuation: '#908578',
+    comment: '#a09888',
+    unknown: '#c06060',
   };
 
   // Table view
@@ -344,8 +344,8 @@ function showOptDisasm() {
       const preLines = pre.split('\n').length;
       const postLines = post.split('\n').length;
       const diff = preLines - postLines;
-      const tag = diff > 0 ? `<span style="color:#00e676"> (-${diff} lines)</span>` :
-                  diff < 0 ? `<span style="color:#ff5252"> (+${-diff} lines)</span>` : '';
+      const tag = diff > 0 ? `<span style="color:#5a9a6a"> (-${diff} lines)</span>` :
+                  diff < 0 ? `<span style="color:#c05050"> (+${-diff} lines)</span>` : '';
       html += highlightDisasm(post) + tag + '\n\n';
     }
     output.innerHTML = html;
