@@ -1,7 +1,6 @@
-// ── CodeMirror Editor Setup ──
+// ── Editor ──
 const editor = CodeMirror.fromTextArea(document.getElementById('source-editor'), {
   mode: 'javascript',
-
   lineNumbers: true,
   tabSize: 2,
   indentWithTabs: false,
@@ -9,20 +8,228 @@ const editor = CodeMirror.fromTextArea(document.getElementById('source-editor'),
   autoCloseBrackets: true,
 });
 
-// ── Tab Switching ──
-const tabs = document.querySelectorAll('.tab');
-const panels = document.querySelectorAll('.tab-panel');
-tabs.forEach(tab => {
-  tab.addEventListener('click', () => {
-    tabs.forEach(t => t.classList.remove('active'));
-    panels.forEach(p => p.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-  });
-});
+// ── Helpers ──
+function escapeHTML(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
 
-// ── AST Renderer ──
-function renderAST(obj, depth = 0, collapseArrays = true) {
+function stripAnsi(str) {
+  return str.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  return (b / 1024).toFixed(1) + ' KB';
+}
+
+function formatTime(ms) {
+  if (ms < 1) return '<1 ms';
+  return ms.toFixed(0) + ' ms';
+}
+
+// Measure the "size" of a stage output for comparison
+function stageSize(key, stage) {
+  if (!stage) return 0;
+  if (key === 'tokens') return stage.data.length; // token count
+  if (key === 'parse' || key === 'semantic') return JSON.stringify(stage.data).length; // JSON bytes
+  if (key === 'codegen' || key === 'opt') {
+    // total wasm instruction count across all funcs
+    let count = 0;
+    if (stage.data?.funcs) {
+      for (const f of stage.data.funcs) count += (f.wasm?.length || 0);
+    }
+    return count;
+  }
+  if (key === 'assemble') return stage.data?.byteLength || stage.size || 0;
+  return 0;
+}
+
+function sizeLabel(key, size) {
+  if (key === 'tokens') return size + ' tokens';
+  if (key === 'parse' || key === 'semantic') return formatBytes(size);
+  if (key === 'codegen' || key === 'opt') return size + ' ops';
+  if (key === 'assemble') return formatBytes(size);
+  return String(size);
+}
+
+const STAGE_LABELS = {
+  tokens:   'Tokenize',
+  parse:    'Parse',
+  semantic: 'Analyze',
+  codegen:  'Generate',
+  opt:      'Optimize',
+  assemble: 'Assemble',
+};
+
+const STAGE_DESC = {
+  tokens:   'Lexical tokens',
+  parse:    'Abstract syntax tree',
+  semantic: 'Scope & variable analysis',
+  codegen:  'Wasm instructions',
+  opt:      'Optimized Wasm',
+  assemble: 'Binary .wasm',
+};
+
+const STAGE_ORDER = ['tokens', 'parse', 'semantic', 'codegen', 'opt', 'assemble'];
+
+// ── State ──
+let lastResult = null;
+let activeStage = null;
+
+// ── Pipeline rendering ──
+function renderPipeline(result) {
+  const pipeline = document.getElementById('pipeline');
+  const sizes = {};
+  let maxSize = 0;
+
+  for (const key of STAGE_ORDER) {
+    const s = stageSize(key, result?.stages?.[key]);
+    sizes[key] = s;
+    if (s > maxSize) maxSize = s;
+  }
+
+  let html = '';
+  for (let i = 0; i < STAGE_ORDER.length; i++) {
+    const key = STAGE_ORDER[i];
+    const stage = result?.stages?.[key];
+    const size = sizes[key];
+    const pct = maxSize > 0 ? (size / maxSize) * 100 : 0;
+    const active = activeStage === key ? ' active' : '';
+    const time = stage ? formatTime(stage.time) : '—';
+
+    if (i > 0) {
+      html += `<div class="stage-arrow">↓</div>`;
+    }
+
+    html += `<div class="stage${active}" data-stage="${key}">`;
+    html += `  <div class="stage-index">${i + 1}</div>`;
+    html += `  <div class="stage-info">`;
+    html += `    <div class="stage-name">${STAGE_LABELS[key]}</div>`;
+    html += `    <div class="stage-meta">${STAGE_DESC[key]} · ${time}</div>`;
+    html += `  </div>`;
+    html += `  <div class="stage-bar-wrap">`;
+    html += `    <div class="stage-bar"><div class="stage-bar-fill" style="width:${pct}%"></div></div>`;
+    html += `    <div class="stage-size">${stage ? sizeLabel(key, size) : '—'}</div>`;
+    html += `  </div>`;
+    html += `</div>`;
+  }
+
+  pipeline.innerHTML = html;
+
+  // Bind clicks
+  pipeline.querySelectorAll('.stage').forEach(el => {
+    el.addEventListener('click', () => {
+      const key = el.dataset.stage;
+      if (activeStage === key) {
+        activeStage = null;
+        renderPipeline(lastResult);
+        hideDetail();
+      } else {
+        activeStage = key;
+        renderPipeline(lastResult);
+        showDetail(key, lastResult);
+      }
+    });
+  });
+}
+
+// ── Detail views ──
+function hideDetail() {
+  document.getElementById('detail-view').classList.add('hidden');
+}
+
+function showDetail(key, result) {
+  const dv = document.getElementById('detail-view');
+  const stage = result?.stages?.[key];
+  if (!stage) { hideDetail(); return; }
+
+  let toolbar = '';
+  let content = '';
+
+  switch (key) {
+    case 'tokens':
+      content = renderTokens(stage.data, editor.getValue());
+      break;
+    case 'parse':
+      content = `<pre>${renderAST(stage.data, 0, true)}</pre>`;
+      break;
+    case 'semantic':
+      content = `<pre>${renderAST(stage.data, 0, true)}</pre>`;
+      break;
+    case 'codegen':
+    case 'opt':
+      toolbar = buildFuncSelect(key, stage.disassembly);
+      content = `<pre id="disasm-${key}">${renderAllDisasm(stage.disassembly)}</pre>`;
+      break;
+    case 'assemble':
+      toolbar = `<button id="download-wasm">Download .wasm</button> <span style="color:var(--text-dim);font-family:var(--font-mono);font-size:12px">${formatBytes(stage.data.byteLength)}</span>`;
+      content = `<pre>${hexDump(stage.data)}</pre>`;
+      break;
+  }
+
+  dv.innerHTML = `
+    <div class="detail-header">
+      <div class="detail-title">${STAGE_LABELS[key]}</div>
+      <button class="detail-close" id="detail-close">&times;</button>
+    </div>
+    ${toolbar ? `<div class="detail-toolbar">${toolbar}</div>` : ''}
+    <div class="detail-content">${content}</div>
+  `;
+  dv.classList.remove('hidden');
+
+  // Bind close
+  document.getElementById('detail-close').addEventListener('click', () => {
+    activeStage = null;
+    renderPipeline(lastResult);
+    hideDetail();
+  });
+
+  // Bind func select
+  if (key === 'codegen' || key === 'opt') {
+    const sel = document.getElementById(`func-select-${key}`);
+    if (sel) {
+      sel.addEventListener('change', () => {
+        const pre = document.getElementById(`disasm-${key}`);
+        const disasm = stage.disassembly;
+        if (sel.value === '__all__') {
+          pre.innerHTML = renderAllDisasm(disasm);
+        } else if (disasm[sel.value]) {
+          pre.innerHTML = highlightDisasm(disasm[sel.value]);
+        }
+      });
+    }
+  }
+
+  // Bind download
+  if (key === 'assemble') {
+    document.getElementById('download-wasm')?.addEventListener('click', () => {
+      const blob = new Blob([stage.data], { type: 'application/wasm' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'output.wasm'; a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
+}
+
+function buildFuncSelect(key, disasmMap) {
+  let html = `<label>Function <select id="func-select-${key}">`;
+  html += `<option value="__all__">All</option>`;
+  for (const name of Object.keys(disasmMap)) {
+    html += `<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`;
+  }
+  html += `</select></label>`;
+  return html;
+}
+
+function renderAllDisasm(disasmMap) {
+  return Object.values(disasmMap).map(d => highlightDisasm(d)).join('\n\n');
+}
+
+// ── Renderers ──
+let nodeId = 0;
+
+function renderAST(obj, depth = 0, collapse = true) {
   if (obj === null) return '<span class="ast-null">null</span>';
   if (obj === undefined) return '<span class="ast-null">undefined</span>';
   if (typeof obj === 'string') return `<span class="ast-string">"${escapeHTML(obj)}"</span>`;
@@ -32,382 +239,156 @@ function renderAST(obj, depth = 0, collapseArrays = true) {
   if (Array.isArray(obj)) {
     if (obj.length === 0) return '<span class="ast-bracket">[]</span>';
     const id = 'n' + (nodeId++);
-    const collapsed = collapseArrays && depth > 1;
-    let items = obj.map((v, i) => {
-      const indent = '  '.repeat(depth + 1);
-      return `${indent}${renderAST(v, depth + 1, collapseArrays)}`;
-    }).join(',\n');
-    const hint = obj[0]?.type ? `Array(${obj.length}) [${obj[0].type}, ...]` : `Array(${obj.length})`;
+    const collapsed = collapse && depth > 1;
+    let items = obj.map(v => `${'  '.repeat(depth + 1)}${renderAST(v, depth + 1, collapse)}`).join(',\n');
+    const hint = obj[0]?.type ? `Array(${obj.length}) [${obj[0].type}, …]` : `Array(${obj.length})`;
     return `<span class="ast-toggle" onclick="toggleNode('${id}')">${collapsed ? '▶' : '▼'}</span><span class="ast-bracket">[</span>` +
-      `<span id="${id}-collapsed" class="ast-collapsed-hint" style="display:${collapsed ? 'inline' : 'none'}"> ${escapeHTML(hint)} </span>` +
-      `<span id="${id}" style="display:${collapsed ? 'none' : 'inline'}">\n${items}\n${'  '.repeat(depth)}</span>` +
-      `<span class="ast-bracket">]</span>`;
+      `<span id="${id}-h" style="display:${collapsed ? 'inline' : 'none'}"> <span class="ast-collapsed-hint">${escapeHTML(hint)}</span> </span>` +
+      `<span id="${id}" style="display:${collapsed ? 'none' : 'inline'}">\n${items}\n${'  '.repeat(depth)}</span><span class="ast-bracket">]</span>`;
   }
 
   if (typeof obj === 'object') {
     const keys = Object.keys(obj).filter(k => !k.startsWith('_') || k === '_variables');
     if (keys.length === 0) return '<span class="ast-bracket">{}</span>';
     const id = 'n' + (nodeId++);
-    const typeVal = obj.type;
-    let items = keys.map(k => {
-      const indent = '  '.repeat(depth + 1);
-      const keyClass = k === 'type' ? 'ast-type' : 'ast-key';
-      return `${indent}<span class="${keyClass}">${escapeHTML(k)}</span>: ${renderAST(obj[k], depth + 1, collapseArrays)}`;
-    }).join(',\n');
-    const hint = typeVal ? typeVal : `{${keys.length} keys}`;
     const collapsed = depth > 3;
+    const hint = obj.type || `{${keys.length}}`;
+    let items = keys.map(k => {
+      const cls = k === 'type' ? 'ast-type' : 'ast-key';
+      return `${'  '.repeat(depth + 1)}<span class="${cls}">${escapeHTML(k)}</span>: ${renderAST(obj[k], depth + 1, collapse)}`;
+    }).join(',\n');
     return `<span class="ast-toggle" onclick="toggleNode('${id}')">${collapsed ? '▶' : '▼'}</span><span class="ast-bracket">{</span>` +
-      `<span id="${id}-collapsed" class="ast-collapsed-hint" style="display:${collapsed ? 'inline' : 'none'}"> ${escapeHTML(hint)} </span>` +
-      `<span id="${id}" style="display:${collapsed ? 'none' : 'inline'}">\n${items}\n${'  '.repeat(depth)}</span>` +
-      `<span class="ast-bracket">}</span>`;
+      `<span id="${id}-h" style="display:${collapsed ? 'inline' : 'none'}"> <span class="ast-collapsed-hint">${escapeHTML(hint)}</span> </span>` +
+      `<span id="${id}" style="display:${collapsed ? 'none' : 'inline'}">\n${items}\n${'  '.repeat(depth)}</span><span class="ast-bracket">}</span>`;
   }
-
   return escapeHTML(String(obj));
 }
 
-let nodeId = 0;
-
 window.toggleNode = function(id) {
   const el = document.getElementById(id);
-  const hint = document.getElementById(id + '-collapsed');
-  const toggle = el.previousElementSibling.previousElementSibling;
+  const hint = document.getElementById(id + '-h');
+  const toggle = hint.previousElementSibling.previousElementSibling;
   if (el.style.display === 'none') {
-    el.style.display = 'inline';
-    hint.style.display = 'none';
-    toggle.textContent = '▼';
+    el.style.display = 'inline'; hint.style.display = 'none'; toggle.textContent = '▼';
   } else {
-    el.style.display = 'none';
-    hint.style.display = 'inline';
-    toggle.textContent = '▶';
+    el.style.display = 'none'; hint.style.display = 'inline'; toggle.textContent = '▶';
   }
 };
 
-function escapeHTML(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-// ── Strip ANSI escape codes ──
-function stripAnsi(str) {
-  return str.replace(/\x1b\[[0-9;]*m/g, '');
-}
-
-// ── Disassembly Highlighter ──
 function highlightDisasm(text) {
   text = stripAnsi(text);
   return text.split('\n').map(line => {
-    // Comments
-    const commentIdx = line.indexOf(';;');
-    let mainPart = line;
-    let commentPart = '';
-    if (commentIdx >= 0) {
-      mainPart = line.slice(0, commentIdx);
-      commentPart = `<span class="wasm-comment">${escapeHTML(line.slice(commentIdx))}</span>`;
-    }
-    // Pure comment lines
-    if (commentIdx === 0) return `<span class="wasm-comment">${escapeHTML(line)}</span>`;
-    // Function signature line
-    if (line.match(/^\S+\(\d+\)/)) {
-      return `<span class="wasm-func-name">${escapeHTML(mainPart)}</span>${commentPart}`;
-    }
-    // Highlight the main part (no HTML entities yet — we'll be careful)
-    // First escape for HTML safety
-    let escaped = escapeHTML(mainPart);
-    // Highlight opcodes (first non-whitespace word on the line)
-    escaped = escaped.replace(/^(\s*)([a-z][a-z0-9_.]+)/, '$1<span class="wasm-opcode">$2</span>');
-    // Highlight type keywords 
-    escaped = escaped.replace(/\b(i32|i64|f32|f64)(?=\b|[.,)])/g, '<span class="wasm-type">$1</span>');
-    // Highlight numeric literals (but not inside HTML tags)
-    escaped = escaped.replace(/(\s)(-?\d+\.?\d*)(\s|$|,)/g, '$1<span class="wasm-number">$2</span>$3');
-    return escaped + commentPart;
+    const ci = line.indexOf(';;');
+    if (ci === 0) return `<span class="wasm-comment">${escapeHTML(line)}</span>`;
+    let main = ci >= 0 ? line.slice(0, ci) : line;
+    let comment = ci >= 0 ? `<span class="wasm-comment">${escapeHTML(line.slice(ci))}</span>` : '';
+    if (line.match(/^\S+\(\d+\)/)) return `<span class="wasm-func-name">${escapeHTML(main)}</span>${comment}`;
+    let e = escapeHTML(main);
+    e = e.replace(/^(\s*)([a-z][a-z0-9_.]+)/, '$1<span class="wasm-opcode">$2</span>');
+    e = e.replace(/\b(i32|i64|f32|f64)(?=\b|[.,)])/g, '<span class="wasm-type">$1</span>');
+    e = e.replace(/(\s)(-?\d+\.?\d*)(\s|$|,)/g, '$1<span class="wasm-number">$2</span>$3');
+    return e + comment;
   }).join('\n');
 }
 
-// ── Token Renderer ──
 function renderTokens(tokens, source) {
-  const colorMap = {
-    keyword: '#8a60a0',
-    identifier: '#5a7aaa',
-    number: '#b07040',
-    string: '#6a8a50',
-    operator: '#3a3530',
-    punctuation: '#908578',
-    comment: '#a09888',
-    unknown: '#c06060',
+  const colors = {
+    keyword: '#8a60a0', identifier: '#5a7aaa', number: '#b07040',
+    string: '#6a8a50', operator: '#3a3530', punctuation: '#908578',
   };
-
-  // Table view
   let html = '<div class="token-grid">';
   html += '<div class="token-header"><span>Type</span><span>Value</span><span>Pos</span></div>';
-  for (const tok of tokens) {
-    const color = colorMap[tok.type] || '#e0e0e0';
-    const val = escapeHTML(tok.value);
-    html += `<div class="token-row">`;
-    html += `<span class="token-type" style="color:${color}">${tok.type}</span>`;
-    html += `<span class="token-value">${val}</span>`;
-    html += `<span class="token-pos">${tok.start}-${tok.end}</span>`;
-    html += `</div>`;
+  for (const t of tokens) {
+    html += `<div class="token-row"><span class="token-type" style="color:${colors[t.type]||'#908578'}">${t.type}</span><span>${escapeHTML(t.value)}</span><span class="token-pos">${t.start}–${t.end}</span></div>`;
   }
   html += '</div>';
-
-  // Visual source view with colored tokens
-  html += '<div class="token-source">';
-  let pos = 0;
-  for (const tok of tokens) {
-    if (tok.start > pos) {
-      html += escapeHTML(source.slice(pos, tok.start));
-    }
-    const color = colorMap[tok.type] || '#e0e0e0';
-    html += `<span style="color:${color};" title="${tok.type}">${escapeHTML(tok.value)}</span>`;
-    pos = tok.end;
-  }
-  if (pos < source.length) {
-    html += escapeHTML(source.slice(pos));
-  }
-  html += '</div>';
-
   return html;
 }
 
-// ── Hex Dump ──
 function hexDump(buffer) {
   const bytes = new Uint8Array(buffer);
   let lines = [];
   for (let i = 0; i < bytes.length; i += 16) {
-    const offset = `<span class="hex-offset">${i.toString(16).padStart(8, '0')}</span>`;
-    const hexParts = [];
-    let ascii = '';
+    const off = `<span class="hex-offset">${i.toString(16).padStart(8, '0')}</span>`;
+    let hex = [], ascii = '';
     for (let j = 0; j < 16; j++) {
       if (i + j < bytes.length) {
-        hexParts.push(`<span class="hex-byte">${bytes[i + j].toString(16).padStart(2, '0')}</span>`);
+        hex.push(`<span class="hex-byte">${bytes[i + j].toString(16).padStart(2, '0')}</span>`);
         const c = bytes[i + j];
         ascii += (c >= 32 && c < 127) ? String.fromCharCode(c) : '.';
-      } else {
-        hexParts.push('  ');
-        ascii += ' ';
-      }
+      } else { hex.push('  '); ascii += ' '; }
     }
-    const hex = hexParts.join(' ');
-    lines.push(`${offset}  ${hex}  <span class="hex-ascii">${escapeHTML(ascii)}</span>`);
+    lines.push(`${off}  ${hex.join(' ')}  <span class="hex-ascii">${escapeHTML(ascii)}</span>`);
   }
   return lines.join('\n');
 }
-
-// ── State ──
-let lastResult = null;
-let wasmBinary = null;
 
 // ── Compile ──
 async function compile() {
   const btn = document.getElementById('compile-btn');
   const errorBar = document.getElementById('error-bar');
-  const timingBar = document.getElementById('timing-bar');
-
-  btn.classList.add('compiling');
-  btn.textContent = '⏳ Compiling...';
+  btn.classList.add('compiling'); btn.textContent = 'Compiling…';
   errorBar.classList.add('hidden');
-  timingBar.classList.add('hidden');
-
-  // Yield to let UI update
   await new Promise(r => setTimeout(r, 10));
 
-  const source = editor.getValue();
-
   try {
-    const result = window.porfforExplorer.compileAll(source);
+    const result = window.porfforExplorer.compileAll(editor.getValue());
     lastResult = result;
+    nodeId = 0;
+    renderPipeline(result);
+
+    if (activeStage) showDetail(activeStage, result);
+    else hideDetail();
 
     if (result.errors) {
-      errorBar.textContent = result.errors.message + '\n' + result.errors.stack;
+      errorBar.textContent = result.errors.message;
       errorBar.classList.remove('hidden');
     }
-
-    // Render whatever stages succeeded
-    nodeId = 0;
-    const collapseArrays = document.getElementById('ast-collapse').checked;
-
-    if (result.stages.tokens) {
-      document.getElementById('output-tokens').innerHTML = renderTokens(result.stages.tokens.data, source);
-    }
-
-    if (result.stages.parse) {
-      document.getElementById('output-ast').innerHTML = renderAST(result.stages.parse.data, 0, collapseArrays);
-    }
-
-    if (result.stages.semantic) {
-      nodeId = 100000;
-      document.getElementById('output-semantic').innerHTML = renderAST(result.stages.semantic.data, 0, collapseArrays);
-    }
-
-    if (result.stages.codegen) {
-      populateFuncSelect('ir-func-select', result.stages.codegen.disassembly);
-      showDisasm('output-ir', 'ir-func-select', result.stages.codegen.disassembly);
-    }
-
-    if (result.stages.opt) {
-      populateFuncSelect('opt-func-select', result.stages.opt.disassembly);
-      showOptDisasm();
-    }
-
-    if (result.stages.assemble) {
-      wasmBinary = result.stages.assemble.data;
-      document.getElementById('wasm-size').textContent = `${wasmBinary.byteLength.toLocaleString()} bytes`;
-      document.getElementById('download-wasm').disabled = false;
-
-      const header = `<span class="hex-header">;; WebAssembly binary (${wasmBinary.byteLength} bytes)</span>\n\n`;
-      document.getElementById('output-wasm').innerHTML = header + hexDump(wasmBinary);
-    }
-
-    // Timing bar
-    if (!result.errors || Object.keys(result.stages).length > 0) {
-      let timingHTML = '';
-      for (const [key, stage] of Object.entries(result.stages)) {
-        timingHTML += `<div class="timing-item"><span class="timing-label">${stage.name}:</span><span class="timing-value">${stage.time.toFixed(1)}ms</span></div>`;
-      }
-      timingBar.innerHTML = timingHTML;
-      timingBar.classList.remove('hidden');
-    }
-
   } catch (e) {
-    errorBar.textContent = e.message + '\n' + e.stack;
+    errorBar.textContent = e.message;
     errorBar.classList.remove('hidden');
   }
 
-  btn.classList.remove('compiling');
-  btn.textContent = '▶ Compile';
+  btn.classList.remove('compiling'); btn.textContent = 'Compile';
 }
 
-function populateFuncSelect(selectId, disasmMap) {
-  const select = document.getElementById(selectId);
-  const prev = select.value;
-  select.innerHTML = '';
-  const allOption = document.createElement('option');
-  allOption.value = '__all__';
-  allOption.textContent = 'All Functions';
-  select.appendChild(allOption);
-
-  for (const name of Object.keys(disasmMap)) {
-    const opt = document.createElement('option');
-    opt.value = name;
-    opt.textContent = name;
-    select.appendChild(opt);
-  }
-  // Restore previous selection if it still exists
-  if (prev && disasmMap[prev]) select.value = prev;
-  else select.value = '__all__';
-}
-
-function showDisasm(outputId, selectId, disasmMap) {
-  const select = document.getElementById(selectId);
-  const output = document.getElementById(outputId);
-  const selected = select.value;
-
-  if (selected === '__all__') {
-    output.innerHTML = Object.values(disasmMap).map(d => highlightDisasm(d)).join('\n\n');
-  } else if (disasmMap[selected]) {
-    output.innerHTML = highlightDisasm(disasmMap[selected]);
-  }
-}
-
-// ── Event Listeners ──
+// ── Events ──
 document.getElementById('compile-btn').addEventListener('click', compile);
+editor.setOption('extraKeys', { 'Ctrl-Enter': compile, 'Cmd-Enter': compile });
 
-editor.setOption('extraKeys', {
-  'Ctrl-Enter': compile,
-  'Cmd-Enter': compile,
-});
-
-document.getElementById('ir-func-select').addEventListener('change', () => {
-  if (lastResult?.stages?.codegen) {
-    showDisasm('output-ir', 'ir-func-select', lastResult.stages.codegen.disassembly);
-  }
-});
-
-document.getElementById('opt-func-select').addEventListener('change', () => {
-  if (lastResult?.stages?.opt) {
-    showOptDisasm();
-  }
-});
-
-function showOptDisasm() {
-  if (!lastResult?.stages?.opt || !lastResult?.stages?.codegen) return;
-  const select = document.getElementById('opt-func-select');
-  const output = document.getElementById('output-opt');
-  const selected = select.value;
-  const preDisasm = lastResult.stages.codegen.disassembly;
-  const postDisasm = lastResult.stages.opt.disassembly;
-
-  if (selected === '__all__') {
-    let html = '';
-    for (const name of Object.keys(postDisasm)) {
-      const pre = stripAnsi(preDisasm[name] || '');
-      const post = stripAnsi(postDisasm[name] || '');
-      const preLines = pre.split('\n').length;
-      const postLines = post.split('\n').length;
-      const diff = preLines - postLines;
-      const tag = diff > 0 ? `<span style="color:#5a9a6a"> (-${diff} lines)</span>` :
-                  diff < 0 ? `<span style="color:#c05050"> (+${-diff} lines)</span>` : '';
-      html += highlightDisasm(post) + tag + '\n\n';
-    }
-    output.innerHTML = html;
-  } else if (postDisasm[selected]) {
-    output.innerHTML = highlightDisasm(postDisasm[selected]);
-  }
-}
-
-document.getElementById('download-wasm').addEventListener('click', () => {
-  if (!wasmBinary) return;
-  const blob = new Blob([wasmBinary], { type: 'application/wasm' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'output.wasm';
-  a.click();
-  URL.revokeObjectURL(url);
-});
-
-// ── Resizable divider ──
-(function setupResizer() {
-  const sourcePanel = document.getElementById('source-panel');
-  let isResizing = false;
-
-  sourcePanel.addEventListener('mousedown', (e) => {
-    // Only trigger if clicking near the right edge (the resize handle area)
-    const rect = sourcePanel.getBoundingClientRect();
-    if (e.clientX < rect.right - 6) return;
-    isResizing = true;
+// ── Resizer ──
+(function() {
+  const panel = document.getElementById('source-panel');
+  let resizing = false;
+  panel.addEventListener('mousedown', e => {
+    if (e.clientX < panel.getBoundingClientRect().right - 6) return;
+    resizing = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     e.preventDefault();
   });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!isResizing) return;
-    const pct = (e.clientX / window.innerWidth) * 100;
-    sourcePanel.style.width = Math.max(15, Math.min(75, pct)) + '%';
+  document.addEventListener('mousemove', e => {
+    if (!resizing) return;
+    panel.style.width = Math.max(15, Math.min(75, (e.clientX / window.innerWidth) * 100)) + '%';
     editor.refresh();
   });
-
   document.addEventListener('mouseup', () => {
-    if (isResizing) {
-      isResizing = false;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      editor.refresh();
-    }
+    if (resizing) { resizing = false; document.body.style.cursor = ''; document.body.style.userSelect = ''; editor.refresh(); }
   });
 })();
 
-// ── Load Compiler ──
+// ── Init ──
 const status = document.getElementById('status');
-status.textContent = 'Loading compiler...';
+status.textContent = 'Loading…';
+
+renderPipeline(null); // show empty pipeline
 
 import('./compiler-bundle.js').then(() => {
   status.textContent = 'Ready';
-  status.style.color = '#00e676';
-  // Auto-compile on load
+  status.style.color = 'var(--accent2)';
   setTimeout(compile, 100);
 }).catch(e => {
-  status.textContent = 'Failed to load compiler';
-  status.style.color = '#ff5252';
-  console.error('Failed to load compiler:', e);
+  status.textContent = 'Load failed';
+  status.style.color = 'var(--accent)';
+  console.error(e);
 });
