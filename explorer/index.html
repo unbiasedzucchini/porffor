@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Porffor Compiler Explorer</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/monokai.min.css">
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <h1>🔬 Porffor Explorer</h1>
+      <span class="subtitle">JavaScript → WebAssembly Compilation Pipeline</span>
+    </div>
+    <div class="header-right">
+      <button id="compile-btn" title="Compile (Ctrl+Enter)">▶ Compile</button>
+      <span id="status"></span>
+    </div>
+  </header>
+
+  <main>
+    <div class="panel source-panel" id="source-panel">
+      <div class="panel-header">
+        <span class="panel-title">📝 Source Code</span>
+      </div>
+      <div class="panel-body">
+        <textarea id="source-editor">// Try some JavaScript!
+const x = 1 + 2;
+const y = x * 3;
+console.log(y);</textarea>
+      </div>
+    </div>
+
+    <div class="panel-group" id="output-panels">
+      <div class="tab-bar" id="tab-bar">
+        <button class="tab active" data-tab="tokens">🏷️ Tokens</button>
+        <button class="tab" data-tab="ast">🌳 AST</button>
+        <button class="tab" data-tab="semantic">🔍 Semantic</button>
+        <button class="tab" data-tab="ir">⚙️ Wasm IR</button>
+        <button class="tab" data-tab="opt">🚀 Optimized IR</button>
+        <button class="tab" data-tab="wasm">📦 WebAssembly</button>
+      </div>
+      <div class="tab-panels">
+        <div class="tab-panel active" id="tab-tokens">
+          <pre class="output" id="output-tokens"><span class="placeholder">Click Compile or press Ctrl+Enter</span></pre>
+        </div>
+        <div class="tab-panel" id="tab-ast">
+          <div class="panel-toolbar">
+            <label><input type="checkbox" id="ast-collapse" checked> Collapse arrays</label>
+          </div>
+          <pre class="output" id="output-ast"><span class="placeholder">Click Compile or press Ctrl+Enter</span></pre>
+        </div>
+        <div class="tab-panel" id="tab-semantic">
+          <pre class="output" id="output-semantic"><span class="placeholder">Click Compile or press Ctrl+Enter</span></pre>
+        </div>
+        <div class="tab-panel" id="tab-ir">
+          <div class="panel-toolbar">
+            <label>Function: <select id="ir-func-select"><option value="">—</option></select></label>
+          </div>
+          <pre class="output" id="output-ir"><span class="placeholder">Click Compile or press Ctrl+Enter</span></pre>
+        </div>
+        <div class="tab-panel" id="tab-opt">
+          <div class="panel-toolbar">
+            <label>Function: <select id="opt-func-select"><option value="">—</option></select></label>
+          </div>
+          <pre class="output" id="output-opt"><span class="placeholder">Click Compile or press Ctrl+Enter</span></pre>
+        </div>
+        <div class="tab-panel" id="tab-wasm">
+          <div class="panel-toolbar">
+            <button id="download-wasm" disabled>💾 Download .wasm</button>
+            <span id="wasm-size"></span>
+          </div>
+          <pre class="output" id="output-wasm"><span class="placeholder">Click Compile or press Ctrl+Enter</span></pre>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div id="error-bar" class="error-bar hidden"></div>
+  <div id="timing-bar" class="timing-bar hidden"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/javascript/javascript.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

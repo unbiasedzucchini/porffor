@@ -1,0 +1,14 @@
+[Unit]
+Description=Porffor Compiler Explorer
+After=network.target
+
+[Service]
+Type=simple
+User=exedev
+WorkingDirectory=/home/exedev/porffor/explorer
+ExecStart=/bin/busybox httpd -f -p 8000 -h /home/exedev/porffor/explorer
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
